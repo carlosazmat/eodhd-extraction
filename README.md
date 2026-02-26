@@ -35,6 +35,10 @@ pwsh .\Invoke-EodhdSymbolExport.ps1 -ListExchanges
 
    - Expected result: one exchange per line (Code, Name, Country, Currency).
 
+   - `-AllExchanges` is available on `Invoke-EodhdSymbolExport.ps1`, but it is usually **not** what you want for day-to-day runs.
+   - It can take a long time because it processes every available exchange.
+   - The main downside is runtime, not API cost pressure. Running these scripts is generally not expensive from an API call/quota perspective.
+
 6. Run the export
    - In the same PowerShell window, run:
 

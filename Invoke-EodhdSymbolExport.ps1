@@ -205,14 +205,7 @@ function Invoke-EodhdSymbolExport {
         }
 
         if ([string]::IsNullOrWhiteSpace($token)) {
-            $token = [string]$config.apiToken
-            if (-not [string]::IsNullOrWhiteSpace($token)) {
-                $tokenSource = "config"
-            }
-        }
-
-        if ([string]::IsNullOrWhiteSpace($token)) {
-            Write-Error "Missing API token. Provide EODHD_API_TOKEN in .env, set EODHD_API_TOKEN in environment, or set apiToken in config."
+            Write-Error "Missing API token. Provide EODHD_API_TOKEN in .env or set EODHD_API_TOKEN in environment."
             return 1
         }
 
@@ -349,6 +342,7 @@ function Invoke-EodhdSymbolExport {
                 filteredSymbols    = 0
                 outputSymbolsOnlyFile = ""
                 outputPayloadFile  = ""
+                outputSymbolInfoFile = ""
                 errorMessage       = ""
             }
 
@@ -374,10 +368,37 @@ function Invoke-EodhdSymbolExport {
 
                 $symbolsFile = Join-Path $outputDirectory ("{0}-symbols-rt.txt" -f $exchangeCode)
                 $payloadFile = Join-Path $outputDirectory ("{0}-symbols-full.json" -f $exchangeCode)
+                $symbolInfoFile = Join-Path $outputDirectory ("{0}-syminfo-rt.csv" -f $exchangeCode)
+
+                $symbolInfoRows = @(
+                    $rows |
+                    ForEach-Object {
+                        $code = [string]$_.Code
+                        $symbolValue = $code
+
+                        if ([string]::IsNullOrWhiteSpace($symbolValue)) {
+                            $symbolValue = $symbolFormat.Replace("{Code}", $code).Replace("{ExchangeCode}", $exchangeCode)
+                        }
+
+                        if (-not [string]::IsNullOrWhiteSpace($symbolValue)) {
+                            $exchangeSuffixPattern = "\.{0}$" -f [Regex]::Escape($exchangeCode)
+                            $symbolValue = [Regex]::Replace($symbolValue, $exchangeSuffixPattern, "", [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+                        }
+
+                        [pscustomobject]@{
+                            Symbol = $symbolValue
+                            Name = [string]$_.Name
+                            Currency = [string]$_.Currency
+                        }
+                    } |
+                    Where-Object { -not [string]::IsNullOrWhiteSpace($_.Symbol) } |
+                    Sort-Object -Property Symbol -Unique
+                )
 
                 try {
                     $symbols -join [Environment]::NewLine | Out-File -LiteralPath $symbolsFile -Encoding utf8
                     $rows | ConvertTo-Json -Depth 12 | Out-File -LiteralPath $payloadFile -Encoding utf8
+                    $symbolInfoRows | Export-Csv -LiteralPath $symbolInfoFile -NoTypeInformation -Encoding utf8
                 }
                 catch {
                     $outputWriteFailed = $true
@@ -386,6 +407,7 @@ function Invoke-EodhdSymbolExport {
 
                 $result.outputSymbolsOnlyFile = $symbolsFile
                 $result.outputPayloadFile = $payloadFile
+                $result.outputSymbolInfoFile = $symbolInfoFile
             }
             catch {
                 $anyExchangePullFailed = $true

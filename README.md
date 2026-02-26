@@ -1,48 +1,46 @@
-# EODHD Export 
+# EODHD Export
 
-This folder contains a standalone PowerShell process to export exchange symbols from EODHD for RT import files.
+This folder contains a standalone method to export exchange symbols from EODHD for use with [Real Test Trading software](https://mhptrading.com/)  The basic idea is to remove the need to figure out which symbols are available at which exchanges.
 
-## Quickstart (Non-Technical)
+## Quickstart
 
 Follow these steps in order.
 
 1. Get an EODHD API key
-   - Go to the EODHD website and create an account.
-   - In your account dashboard, copy your API key.
-
-2. Copy the `.env.example` to `.env` and paste in your EODHD API key   
-   - Open `.env` in a text editor.
-   - Make sure you have exactly one line in this format:
+  - Go to the EODHD website and create an account.
+  - In your account dashboard, copy your API key.
+2. Copy the `.env.example` to `.env` and paste in your EODHD API key
+  - Open `.env` in a text editor.
+  - Make sure you have exactly one line in the following format:
 
 ```text
 EODHD_API_TOKEN=your-real-api-key-goes-here
 ```
 
-3. Make sure that the file is called `.env` - there is already a .gitignore file that EXCLUDES this from source control.
-
-4. Test that your key works (safe test, no symbol export)
-   - Open PowerShell in this folder and run:
+1. Make sure that the file is called `.env` - there is already a .gitignore file that EXCLUDES this from source control.
+2. Test that your key works (safe test, no symbol export)
+  - Open PowerShell in this folder and run:
 
 ```powershell
 pwsh .\Invoke-EodhdSymbolExport.ps1 -ListExchanges
 ```
 
-   - Expected result: one exchange per line (Code, Name, Country, Currency).
+- Expected result: one exchange per line (Code, Name, Country, Currency).
 
 Congratulations - the system works - now onto the configuration.
 
 ## Real Test Configuration
 
-Do NOT forget to put your EODHD API key into the real test ini file.  Real Test has to be closed 
-when you modify the realtest.ini file. 
+Do NOT forget to put your EODHD API key into the real test ini file.  Real Test has to be closed when you modify the realtest.ini file. 
 
 ## Configuration
+
+The general idea is that you'd populate the exchanges array and run the script each day - however which exchanges are available?  Enter the currencies and countries configuration options - these two take precedence and help pull data from EODHD allowing you to answer the first question. 
 
 Edit `eodhd-config.json`:
 
 - `exchanges` controls which exchange lists are pulled.
   - `code` can be a single value or a list.
-  - `enabled` is no longer used.
 - `currencies` is an optional list of currency codes (default: empty list `[]`).
   - Purpose: choose exchanges by the exchange trading currency instead of hardcoding exchange codes.
   - Example: `["CHF","EUR"]`.
@@ -58,6 +56,8 @@ Edit `eodhd-config.json`:
 
 Example:
 
+This will fetch all symbols for both the SW and XETRA exchanges. 
+
 ```json
 "exchanges": [
   { "code": ["SW", "XETRA"] }
@@ -66,11 +66,15 @@ Example:
 
 Currency-driven selection example:
 
+Overrides `exchanges` and instead pulls all exchanges that use one of the listed currencies. 
+
 ```json
 "currencies": ["CHF", "EUR"]
 ```
 
 Country-driven selection example:
+
+Overrides `exchanges` and instead pulls all exchanges within a particular country.
 
 ```json
 "countries": ["Germany"]
@@ -105,7 +109,9 @@ For safety, store real secrets in `.env` and NEVER CHECK THIS INTO SOURCE CONTRO
 
 ## Run Manually
 
-From this folder:
+This is meant for task scheduler style environments - all it does it wrap the main script with a way of capturing all the output to a log.  
+
+If that makes no sense - you don't need it - just use the main script `Invoke-EodhdSymbolExport.ps1`
 
 ```powershell
 .\Run-EodhdSnapshot.ps1
@@ -127,6 +133,31 @@ To list available exchanges from EODHD (on demand, no symbol export):
 
 This uses your configured token, calls `exchanges-list`, and prints one exchange per line (`Code | Name | Country | Currency`).
 
+## Parameters
+
+`Invoke-EodhdSymbolExport.ps1` supports these parameters:
+
+- `-ConfigPath` - Use a specific config file path.
+  - Example:
+
+```powershell
+.\Invoke-EodhdSymbolExport.ps1 -ConfigPath .\eodhd-config.json
+```
+
+- `-ListExchanges` - List exchanges from EODHD without exporting symbol files.
+  - Example:
+
+```powershell
+.\Invoke-EodhdSymbolExport.ps1 -ListExchanges
+```
+
+- `-AllExchanges` - Ignore `config.exchanges` and export all available exchanges.
+  - Example:
+
+```powershell
+.\Invoke-EodhdSymbolExport.ps1 -AllExchanges
+```
+
 ## Transcript Logging (Wrapper Script)
 
 `Run-EodhdSnapshot.ps1` uses PowerShell transcript logging:
@@ -146,10 +177,11 @@ Why this is useful:
 
 ## Output Files
 
-For each enabled exchange (example `SW`):
+For each exchange (example `SW`):
 
 - `output/SW-symbols-rt.txt` - import-ready symbols (`CODE.EXCHANGE` format by default).
 - `output/SW-symbols-full.json` - filtered symbol payload for diagnostics.
+- `output/SW-syminfo-rt.csv` - symbol info with `Symbol,Name,Currency` (`Symbol` without exchange suffix).
 
 Notes:
 
@@ -159,6 +191,17 @@ Run-health outputs for dashboard ingestion:
 
 - `output/last-run.json`
 - `output/run-health-summary.csv`
+
+## General
+
+- Token sources are strictly:
+  1. `.env` key `EODHD_API_TOKEN`
+  2. environment variable `EODHD_API_TOKEN`
+- `.env` parser supports standard `KEY=value`, quoted values, and `export KEY=value`.
+- Exporter writes a per-run exporter log:
+  - `logs/eodhd-export-<timestamp>.log`
+- `last-run.json` includes per-exchange metadata including output file paths and failure details.
+- In `-ListExchanges` mode, EODHD exchange entries are normalized before display (handles array-shaped fields from upstream API).
 
 ## Task Scheduler
 
@@ -177,3 +220,4 @@ If you keep the token in an environment variable, run the task under a user acco
 - `Run-EodhdSnapshot.ps1` - scheduler-friendly wrapper script.
 - `output/` - generated snapshot outputs (created at runtime).
 - `logs/` - run logs and transcripts (created at runtime).
+

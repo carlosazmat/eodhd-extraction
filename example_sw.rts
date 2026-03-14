@@ -23,9 +23,6 @@ Import:
 Settings:	
 	AccountSize:	100000
 	DataFile:	sw-symbols.rtd
-	
-	// exchange map so that all SW symbols get mapped to EBS so orders are placed correctly via Order Clerk.
-	ExchangeMap:	?scriptpath?\CustomExchangeMap.csv
 
 Charts:	
 	Price:	C

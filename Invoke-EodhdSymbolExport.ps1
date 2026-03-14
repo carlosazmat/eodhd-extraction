@@ -134,16 +134,7 @@ function Write-EodhdAvailableExchanges {
         }
     }
 
-    # Header plus one exchange per line for predictable CLI output.
-    Write-Host ($propertyNames -join " | ")
-
-    $exchanges | ForEach-Object {
-        $values = foreach ($propertyName in $propertyNames) {
-            [string]$_.($propertyName)
-        }
-
-        Write-Host ($values -join " | ")
-    }
+    $exchanges | Select-Object -Property $propertyNames
 }
 
 function Invoke-EodhdSymbolExport {
@@ -229,10 +220,140 @@ function Invoke-EodhdSymbolExport {
         return $null
     }
 
+    function ConvertTo-NormalizedExchangeMappingValue {
+        param([AllowNull()][string]$Value)
+
+        if ([string]::IsNullOrWhiteSpace($Value)) {
+            return ""
+        }
+
+        return $Value.Trim().ToUpperInvariant()
+    }
+
+    function Get-OrderClerkExchangeMappings {
+        [CmdletBinding()]
+        param(
+            [Parameter(Mandatory = $true)]
+            [string]$CsvPath
+        )
+
+        if (-not (Test-Path -LiteralPath $CsvPath)) {
+            throw "OrderClerk exchange mapping file not found: $CsvPath"
+        }
+
+        $rows = @(Import-Csv -LiteralPath $CsvPath)
+        if ($rows.Count -eq 0) {
+            return @()
+        }
+
+        $mappings = @()
+        foreach ($row in $rows) {
+            $columnValues = @(
+                $row.PSObject.Properties |
+                ForEach-Object { [string]$_.Value }
+            )
+
+            if ($columnValues.Count -lt 3) {
+                throw "OrderClerk exchange mapping file must contain at least three columns: $CsvPath"
+            }
+
+            $exchangeCode = [string]$columnValues[0]
+            $country = [string]$columnValues[2]
+            if ([string]::IsNullOrWhiteSpace($exchangeCode) -or [string]::IsNullOrWhiteSpace($country)) {
+                continue
+            }
+
+            $mappings += [pscustomobject]@{
+                ExchangeCode = $exchangeCode.Trim()
+                Country = $country.Trim()
+                NormalizedCountry = (ConvertTo-NormalizedExchangeMappingValue -Value $country)
+            }
+        }
+
+        return $mappings
+    }
+
+    function Resolve-OrderClerkExchangeCsvPath {
+        [CmdletBinding()]
+        param(
+            [Parameter(Mandatory = $true)]
+            [string]$PrimaryCsvPath,
+            [Parameter(Mandatory = $true)]
+            [string]$FallbackCsvPath,
+            [Parameter(Mandatory = $true)]
+            [string]$LogFile
+        )
+
+        if (Test-Path -LiteralPath $PrimaryCsvPath) {
+            return $PrimaryCsvPath
+        }
+
+        $missingPrimaryMessage = "ORDERCLERK MAPPING FILE MISSING: '$PrimaryCsvPath'. Falling back to '$FallbackCsvPath'."
+        Write-Warning $missingPrimaryMessage
+        "[$((Get-Date).ToUniversalTime().ToString("o"))] WARNING: $missingPrimaryMessage" | Add-Content -LiteralPath $LogFile
+
+        if (Test-Path -LiteralPath $FallbackCsvPath) {
+            return $FallbackCsvPath
+        }
+
+        throw "OrderClerk exchange mapping file not found at primary path '$PrimaryCsvPath' or fallback path '$FallbackCsvPath'."
+    }
+
+    function Get-ExchangeCountryIso2 {
+        [CmdletBinding()]
+        param(
+            [Parameter(Mandatory = $true)]
+            [psobject]$Exchange
+        )
+
+        return [string]$Exchange.CountryISO2
+    }
+
+    function Resolve-OrderClerkExchangeCode {
+        [CmdletBinding()]
+        param(
+            [Parameter(Mandatory = $true)]
+            [string]$ExchangeCode,
+            [Parameter(Mandatory = $true)]
+            [psobject[]]$AvailableExchanges,
+            [Parameter(Mandatory = $true)]
+            [hashtable]$OrderClerkMappingsByCountry,
+            [Parameter(Mandatory = $true)]
+            [string]$LogFile
+        )
+
+        $exchangeMetadata = @(
+            $AvailableExchanges |
+            Where-Object { [string]$_.Code -eq $ExchangeCode }
+        )
+
+        if ($exchangeMetadata.Count -eq 0) {
+            throw "Unable to resolve EODHD exchange metadata for exchange '$ExchangeCode'."
+        }
+
+        $exchange = $exchangeMetadata[0]
+        $countryIso2 = [string](Get-ExchangeCountryIso2 -Exchange $exchange)
+        if ([string]::IsNullOrWhiteSpace($countryIso2)) {
+            $warningMessage = "No CountryISO2 value found for EODHD exchange '$ExchangeCode'. Using EODHD exchange code."
+            Write-Warning $warningMessage
+            "[$((Get-Date).ToUniversalTime().ToString("o"))] WARNING: $warningMessage" | Add-Content -LiteralPath $LogFile
+            return $ExchangeCode
+        }
+
+        $normalizedCountryIso2 = ConvertTo-NormalizedExchangeMappingValue -Value $countryIso2
+        if ($OrderClerkMappingsByCountry.ContainsKey($normalizedCountryIso2)) {
+            return [string]$OrderClerkMappingsByCountry[$normalizedCountryIso2].ExchangeCode
+        }
+
+        $warningMessage = "No OrderClerk exchange mapping found for EODHD exchange '$ExchangeCode' CountryISO2 '$countryIso2'. Using EODHD exchange code."
+        Write-Warning $warningMessage
+        "[$((Get-Date).ToUniversalTime().ToString("o"))] WARNING: $warningMessage" | Add-Content -LiteralPath $LogFile
+        return $ExchangeCode
+    }
+
     try {
         if (-not (Test-Path -LiteralPath $ConfigPath)) {
-            Write-Error "Config file not found: $ConfigPath"
-            return 1
+            throw "Config file not found: $ConfigPath"
         }
 
         $configDirectory = Split-Path -Path $ConfigPath -Parent
@@ -240,8 +361,7 @@ function Invoke-EodhdSymbolExport {
 
         $apiBaseUrl = [string]$config.apiBaseUrl
         if ([string]::IsNullOrWhiteSpace($apiBaseUrl)) {
-            Write-Error "Missing config value: apiBaseUrl"
-            return 1
+            throw "Missing config value: apiBaseUrl"
         }
 
         $requestTimeoutSeconds = 60
@@ -267,15 +387,15 @@ function Invoke-EodhdSymbolExport {
         }
 
         if ([string]::IsNullOrWhiteSpace($token)) {
-            Write-Error "Missing API token. Provide EODHD_API_TOKEN in .env or set EODHD_API_TOKEN in environment."
-            return 1
+            throw "Missing API token. Provide EODHD_API_TOKEN in .env or set EODHD_API_TOKEN in environment."
         }
 
         if ($ListExchanges) {
             Write-EodhdAvailableExchanges -ApiBaseUrl $apiBaseUrl -ApiToken $token -TimeoutSeconds $requestTimeoutSeconds
-            return 0
+            return
         }
 
+        $availableExchanges = @()
         $configuredExchangeCodes = @()
         $configuredCurrencies = @(
             @($config.currencies) |
@@ -335,8 +455,7 @@ function Invoke-EodhdSymbolExport {
             if ($configuredExchangeCodes.Count -eq 0) {
                 $currenciesText = if ($configuredCurrencies.Count -gt 0) { $configuredCurrencies -join ', ' } else { '(none)' }
                 $countriesText = if ($configuredCountries.Count -gt 0) { $configuredCountries -join ', ' } else { '(none)' }
-                Write-Error "No exchanges matched config selectors. currencies: $currenciesText ; countries: $countriesText"
-                return 1
+                throw "No exchanges matched config selectors. currencies: $currenciesText ; countries: $countriesText"
             }
         }
         else {
@@ -365,8 +484,7 @@ function Invoke-EodhdSymbolExport {
 
         $configuredExchangeCodes = @($configuredExchangeCodes | Sort-Object -Unique)
         if ($configuredExchangeCodes.Count -eq 0) {
-            Write-Error "No exchange codes found in config.exchanges."
-            return 1
+            throw "No exchange codes found in config.exchanges."
         }
 
         $symbolFormat = [string]$config.symbolFormat
@@ -388,9 +506,32 @@ function Invoke-EodhdSymbolExport {
         $timestampUtc = (Get-Date).ToUniversalTime()
         $timestampIso = $timestampUtc.ToString("o")
         $logFile = Join-Path $logsDirectory ("eodhd-export-{0}.log" -f $timestampUtc.ToString("yyyyMMdd-HHmmss"))
+        $orderClerkExchangeCsvPrimaryPath = "C:\OrderClerk\OrderClerkExchanges.csv"
+        $orderClerkExchangeCsvFallbackPath = Join-Path $PSScriptRoot "fallback\OrderClerkExchanges.csv"
 
         "[$timestampIso] Starting EODHD symbol export" | Out-File -LiteralPath $logFile -Encoding utf8
         "[$timestampIso] Token source: $tokenSource" | Add-Content -LiteralPath $logFile
+
+        if ($availableExchanges.Count -eq 0) {
+            $availableExchanges = @(Get-EodhdAvailableExchanges -ApiBaseUrl $apiBaseUrl -ApiToken $token -TimeoutSeconds $requestTimeoutSeconds)
+        }
+
+        $orderClerkExchangeCsvPath = Resolve-OrderClerkExchangeCsvPath -PrimaryCsvPath $orderClerkExchangeCsvPrimaryPath -FallbackCsvPath $orderClerkExchangeCsvFallbackPath -LogFile $logFile
+        "[$((Get-Date).ToUniversalTime().ToString("o"))] Using OrderClerk exchange mapping file: $orderClerkExchangeCsvPath" | Add-Content -LiteralPath $logFile
+
+        $orderClerkMappings = @(Get-OrderClerkExchangeMappings -CsvPath $orderClerkExchangeCsvPath)
+        $orderClerkMappingsByCountry = @{}
+        foreach ($mapping in $orderClerkMappings) {
+            $normalizedCountry = [string]$mapping.NormalizedCountry
+            if ([string]::IsNullOrWhiteSpace($normalizedCountry)) {
+                continue
+            }
+
+            if (-not $orderClerkMappingsByCountry.ContainsKey($normalizedCountry)) {
+                # Keep the first row found in OrderClerkExchanges.csv for each country.
+                $orderClerkMappingsByCountry[$normalizedCountry] = $mapping
+            }
+        }
 
         $exchangeResults = @()
         $anyExchangePullFailed = $false
@@ -417,6 +558,7 @@ function Invoke-EodhdSymbolExport {
                 $result.totalSymbols = $rows.Count
 
                 $result.filteredSymbols = $rows.Count
+                $mappedExchangeCode = Resolve-OrderClerkExchangeCode -ExchangeCode $exchangeCode -AvailableExchanges $availableExchanges -OrderClerkMappingsByCountry $orderClerkMappingsByCountry -LogFile $logFile
 
                 $symbols = @(
                     $rows |
@@ -449,7 +591,7 @@ function Invoke-EodhdSymbolExport {
 
                         [pscustomobject]@{
                             Symbol = $symbolValue
-                            Exchange = $exchangeCode
+                            Exchange = $mappedExchangeCode
                             Name = [string]$_.Name
                             Currency = [string]$_.Currency
                         }
@@ -507,18 +649,21 @@ function Invoke-EodhdSymbolExport {
         "[$((Get-Date).ToUniversalTime().ToString("o"))] Export complete. Failed exchanges: $($summary.exchangesFailed)" | Add-Content -LiteralPath $logFile
 
         if ($summary.exchangesFailed -gt 0 -or $summary.outputWriteFailed) {
-            return 1
+            throw "Export completed with failures. Review log file: $logFile"
         }
-
-        return 0
     }
     catch {
-        Write-Error "Unexpected exporter failure: $($_.Exception.Message)"
-        return 1
+        throw
     }
 }
 
 if ($MyInvocation.InvocationName -ne ".") {
-    $exitCode = Invoke-EodhdSymbolExport -ConfigPath $script:ConfigPath -ListExchanges:$ListExchanges -AllExchanges:$AllExchanges
-    exit $exitCode
+    try {
+        Invoke-EodhdSymbolExport -ConfigPath $script:ConfigPath -ListExchanges:$ListExchanges -AllExchanges:$AllExchanges
+        exit 0
+    }
+    catch {
+        Write-Error -Message $_.Exception.Message
+        exit 1
+    }
 }

@@ -2,9 +2,11 @@
 
 This folder contains a standalone method to export exchange symbols from EODHD for use with [Real Test Trading software](https://mhptrading.com/)  The basic idea is to remove the need to figure out which symbols are available at which exchanges.
 
-## Quickstart
+Before you start, you MUST have Order Clerk also installed on this computer - as the script creates symbol files that require access to the OrderClerkExchanges.csv file in the Order Clerk installation.
 
-Follow these steps in order.
+## Quickstart (Listing EODHD Exchanges)
+
+Follow these steps in order to run the script and start exploring how it works.
 
 1. Get an EODHD API key
   - Go to the EODHD website and create an account.
@@ -18,45 +20,82 @@ EODHD_API_TOKEN=your-real-api-key-goes-here
 ```
 
 1. Make sure that the file is called `.env` - there is already a .gitignore file that EXCLUDES this from source control.
-2. Test that your key works (safe test, no symbol export)
+2. Test that your key works by fetch a list of all the available exchanges from EODHD
   - Open PowerShell in this folder and run:
 
 ```powershell
 pwsh .\Invoke-EodhdSymbolExport.ps1 -ListExchanges
 ```
 
-- Expected result: one exchange per line (Code, Name, Country, Currency).
+- Expected result: information per exchange getting dumped to the console, something like this: 
 
-Congratulations - the system works - now onto the configuration.
+```
+Code         : USE
+Name         : Uganda Securities Exchange
+Country      : Uganda
+Currency     : UGX
+CountryISO2  : UG
+CountryISO3  : UGA
+OperatingMIC : XUGA
+```
 
-## Real Test Configuration
+
+Congratulations - the system works - now onto the configuration of which exchanges to dump symbols for.
+
+## Real Test Configuration [IMPORTANT]
 
 Do NOT forget to put your EODHD API key into the real test ini file.  Real Test has to be closed when you modify the realtest.ini file. 
 
 ## Configuration
 
-The general idea is that you'd populate the exchanges array and run the script each day - however which exchanges are available?  Enter the currencies and countries configuration options - these two take precedence and help pull data from EODHD allowing you to answer the first question. 
+The Quickstart shows how to list the available exchanges.  To have the extraction script download only the exchanges you are interested in you fill in the ``exchanges`` configuration, its also possible to download all exchange, symbols via currency or by country.
 
-Edit `eodhd-config.json`:
+The example configuration in this repo is:
+
+```json
+{
+  "apiBaseUrl": "https://eodhd.com/api",
+  "requestTimeoutSeconds": 60,
+  "currencies": [],
+  "countries": [],
+  "exchanges": [
+    {
+      "code": [
+        "SW",
+        "XETRA",
+        "PA",
+        "F"
+      ]
+    }
+  ],
+  "symbolFormat": "{Code}.{ExchangeCode}",
+  "outputDirectory": "./output",
+  "logsDirectory": "./logs",
+  "runHealthFileName": "last-run.json",
+  "runHealthSummaryFileName": "run-health-summary.csv"
+}
+```
+
+Here is what each of those elements do:
 
 - `exchanges` controls which exchange lists are pulled.
-  - `code` can be a single value or a list.
+  - `code` can be a single value or a list of exchange codes (take these from the -ListExchanges result).
 - `currencies` is an optional list of currency codes (default: empty list `[]`).
-  - Purpose: choose exchanges by the exchange trading currency instead of hardcoding exchange codes.
+  - Purpose: choose exchanges by the exchange trading currency instead of specific exchange codes.
   - Example: `["CHF","EUR"]`.
 - `countries` is an optional list of country names (default: empty list `[]`).
   - Purpose: choose exchanges by country (for example all exchanges in Germany).
   - Example: `["Germany"]`.
 - Selector behavior:
   - If either `currencies` or `countries` has values, the script calls `exchanges-list` and selects exchanges matching either selector.
-  - In selector mode, `exchanges` is ignored.
+  - In selector mode, `exchanges` is **ignored**.
   - Output is still per exchange (one file per matched exchange).
 - All instrument types returned by EODHD are included in the export (no type filtering).
 - `outputDirectory` and `logsDirectory` can be relative or absolute paths.
 
 Example:
 
-This will fetch all symbols for both the SW and XETRA exchanges. 
+This configuration will fetch all symbols for both the SW and XETRA exchanges. 
 
 ```json
 "exchanges": [
@@ -66,7 +105,7 @@ This will fetch all symbols for both the SW and XETRA exchanges.
 
 Currency-driven selection example:
 
-Overrides `exchanges` and instead pulls all exchanges that use one of the listed currencies. 
+Overrides `exchanges` and instead pulls all exchanges that use one of the listed currencies.  All this code does is list exchanges, then downloads ALL the symbols for that exchange - as long as that exchange uses the specified currency.
 
 ```json
 "currencies": ["CHF", "EUR"]
@@ -74,7 +113,7 @@ Overrides `exchanges` and instead pulls all exchanges that use one of the listed
 
 Country-driven selection example:
 
-Overrides `exchanges` and instead pulls all exchanges within a particular country.
+Overrides `exchanges` and instead pulls all exchanges within a particular country.  All this code does is list exchanges, then downloads ALL the symbols for that exchange - as long as that exchange is for the specified country.
 
 ```json
 "countries": ["Germany"]
@@ -131,7 +170,15 @@ To list available exchanges from EODHD (on demand, no symbol export):
 .\Invoke-EodhdSymbolExport.ps1 -ListExchanges
 ```
 
-This uses your configured token, calls `exchanges-list`, and prints one exchange per line (`Code | Name | Country | Currency`).
+This uses your configured token, calls `exchanges-list`, and outputs exchange objects. When run directly, PowerShell will display them in its default table view, and you can also filter or reformat them in the pipeline.
+
+Example:
+
+```powershell
+.\Invoke-EodhdSymbolExport.ps1 -ListExchanges |
+    Where-Object Code -in @('SW', 'F') |
+    Format-List *
+```
 
 ## Parameters
 
@@ -179,13 +226,22 @@ Why this is useful:
 
 For each exchange (example `SW`):
 
-- `output/SW-symbols-rt.txt` - import-ready symbols (`CODE.EXCHANGE` format by default).
-- `output/SW-symbols-full.json` - filtered symbol payload for diagnostics.
-- `output/SW-syminfo-rt.csv` - symbol info with `Symbol,Name,Currency` (`Symbol` without exchange suffix).
+- `output/SW-symbols-rt.txt` - import section ready symbols (`CODE.EXCHANGE` format by default), put this in an IncludeList statement in your RTS script.
+- `output/SW-symbols-full.json` - the full JSON data returned by EODHD.
+- `output/SW-syminfo-rt.csv` - Real Test specific symbol info with `Symbol,Exchange,Name,Currency` (`Symbol` without exchange suffix, `Exchange` mapped from the first `OrderClerkExchanges.csv` row where column 3 matches EODHD `CountryISO2`).
 
 Notes:
 
 - Files ending with `-symbols-rt.txt` are intended for RealTest import use.
+- OrderClerk mapping file resolution order:
+  1. `C:\OrderClerk\OrderClerkExchanges.csv`
+  2. `fallback\OrderClerkExchanges.csv` (repo fallback)
+- If the primary `C:\OrderClerk\OrderClerkExchanges.csv` file is missing, the exporter logs a loud warning and uses the fallback file.
+- If `C:\OrderClerk\OrderClerkExchanges.csv` has no `CountryISO2` match for an exported exchange, the exporter warns and leaves `Exchange` set to the original EODHD exchange code.
+
+OrderClerk mapping rationale (Marsten Parker, 12 March 2026):
+
+> "All that matters is that when OC is comparing an IB position list record with an OC position (derived from trade list) in the reconcile code it can say “same symbol, same country”. This works e.g. in the US where RT sets all the order exchange fields to SMART/AMEX while IB returns the actual exchange (e.g. Nasdaq). The mapping still works. So you could get by with just looking up EODHD’s CountryISO2 value in column 3 and whichever row is found first, use that exchange acronym in your syminfo.csv."
 
 Run-health outputs for dashboard ingestion:
 

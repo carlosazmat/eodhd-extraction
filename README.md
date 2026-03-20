@@ -232,6 +232,7 @@ Notes:
 
 - Files ending with `-symbols-rt.txt` are intended for RealTest import use.
 - The exporter always reads `fallback\OrderClerkExchanges.csv` for country → exchange acronym mapping.
+- After an export run, if `C:\OrderClerk\OrderClerkExchanges.csv` exists and has more lines or a larger file size than the bundled CSV, the exporter logs a warning and emits `Write-Warning` so you can refresh `fallback\OrderClerkExchanges.csv` if needed.
 - If that CSV has no `CountryISO2` match for an exported exchange, the exporter warns and leaves `Exchange` set to the original EODHD exchange code.
 
 OrderClerk mapping rationale (Marsten Parker, 12 March 2026):
@@ -266,7 +267,7 @@ If you keep the token in an environment variable, run the task under a user acco
 
 ## Symbol validation performance (`Invoke-EodhdSymbolValidation.ps1`)
 
-Validation does not read `fallback\OrderClerkExchanges.csv` itself; it compares your listing file to `output/*-symbols-full.json`. Re-run the exporter after editing that CSV if you need syminfo / exchange tokens to match the updated mapping.
+Validation compares your listing file to `output/*-symbols-full.json` only. Re-run the exporter after editing `fallback\OrderClerkExchanges.csv` if you need syminfo / exchange tokens to match the updated mapping.
 
 Most time is spent reading every `*-symbols-full.json` under `output/` and building in-memory indexes. The script requires **PowerShell 7+** and streams each file with `System.Text.Json` `Utf8JsonReader` (only `Code` / `Currency` per row), avoiding `ConvertFrom-Json` and per-row PowerShell objects.
 

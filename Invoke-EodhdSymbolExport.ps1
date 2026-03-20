@@ -273,6 +273,39 @@ function Invoke-EodhdSymbolExport {
         return $mappings
     }
 
+    function Get-OrderClerkExchangesInstallLooksNewerMessage {
+        param(
+            [Parameter(Mandatory = $true)]
+            [string]$BundledPath
+        )
+
+        $installPath = "C:\OrderClerk\OrderClerkExchanges.csv"
+        if (-not (Test-Path -LiteralPath $installPath)) {
+            return $null
+        }
+
+        if (-not (Test-Path -LiteralPath $BundledPath)) {
+            return $null
+        }
+
+        try {
+            $installItem = Get-Item -LiteralPath $installPath
+            $bundledItem = Get-Item -LiteralPath $BundledPath
+            $installLineCount = [System.IO.File]::ReadAllLines($installPath).Length
+            $bundledLineCount = [System.IO.File]::ReadAllLines($BundledPath).Length
+            $moreRows = $installLineCount -gt $bundledLineCount
+            $moreBytes = $installItem.Length -gt $bundledItem.Length
+            if ($moreRows -or $moreBytes) {
+                return "OrderClerkExchanges.csv file in the C:\OrderClerk folder seems to be more up to date!"
+            }
+        }
+        catch {
+            return $null
+        }
+
+        return $null
+    }
+
     function Get-ExchangeCountryIso2 {
         [CmdletBinding()]
         param(
@@ -697,6 +730,13 @@ Add or fix a row in fallback\OrderClerkExchanges.csv (column 3 country ISO2 must
         [pscustomobject]$summary | Export-Csv -LiteralPath $summaryCsvPath -NoTypeInformation -Encoding utf8
 
         "[$((Get-Date).ToUniversalTime().ToString("o"))] Export complete. Failed exchanges: $($summary.exchangesFailed)" | Add-Content -LiteralPath $logFile
+
+        $orderClerkFreshnessWarning = Get-OrderClerkExchangesInstallLooksNewerMessage -BundledPath $orderClerkExchangeCsvPath
+        if ($null -ne $orderClerkFreshnessWarning) {
+            $warnLine = "WARNING: $orderClerkFreshnessWarning"
+            "[$((Get-Date).ToUniversalTime().ToString("o"))] $warnLine" | Add-Content -LiteralPath $logFile
+            Write-Warning $orderClerkFreshnessWarning
+        }
 
         if ($summary.exchangesFailed -gt 0 -or $summary.outputWriteFailed) {
             throw "Export completed with failures. Review log file: $logFile"

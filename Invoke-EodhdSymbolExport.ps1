@@ -309,6 +309,67 @@ function Invoke-EodhdSymbolExport {
         return [string]$Exchange.CountryISO2
     }
 
+    function Format-EodhdExchangeDiagnostics {
+        param([Parameter(Mandatory = $true)][psobject]$Exchange)
+
+        $orderedKeys = @(
+            "Name",
+            "Country",
+            "Currency",
+            "CountryISO2",
+            "CountryISO3",
+            "OperatingMIC"
+        )
+
+        $parts = New-Object 'System.Collections.Generic.List[string]'
+        foreach ($key in $orderedKeys) {
+            $prop = $Exchange.PSObject.Properties[$key]
+            if ($null -eq $prop) {
+                continue
+            }
+
+            $val = [string]$prop.Value
+            if ([string]::IsNullOrWhiteSpace($val)) {
+                continue
+            }
+
+            [void]$parts.Add(("{0}={1}" -f $key, $val.Trim()))
+        }
+
+        $skip = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        [void]$skip.Add("Code")
+        foreach ($p in $parts) {
+            [void]$skip.Add(($p -split '=', 2)[0])
+        }
+
+        foreach ($prop in $Exchange.PSObject.Properties) {
+            if ([string]::IsNullOrWhiteSpace($prop.Name) -or $skip.Contains($prop.Name)) {
+                continue
+            }
+
+            $val = [string]$prop.Value
+            if ([string]::IsNullOrWhiteSpace($val)) {
+                continue
+            }
+
+            if ($val.Length -gt 120) {
+                continue
+            }
+
+            [void]$skip.Add($prop.Name)
+            [void]$parts.Add(("{0}={1}" -f $prop.Name, $val.Trim()))
+            if ($parts.Count -ge 14) {
+                break
+            }
+        }
+
+        if ($parts.Count -eq 0) {
+            return "No extra metadata fields on this EODHD exchange row (only Code is populated)."
+        }
+
+        return ($parts -join "; ")
+    }
+
     function Resolve-OrderClerkExchangeCode {
         [CmdletBinding()]
         param(
@@ -332,11 +393,20 @@ function Invoke-EodhdSymbolExport {
         }
 
         $exchange = $exchangeMetadata[0]
+        $exchangeContext = Format-EodhdExchangeDiagnostics -Exchange $exchange
         $countryIso2 = [string](Get-ExchangeCountryIso2 -Exchange $exchange)
         if ([string]::IsNullOrWhiteSpace($countryIso2)) {
-            $warningMessage = "No CountryISO2 value found for EODHD exchange '$ExchangeCode'. Using EODHD exchange code."
+            $warningMessage = @"
+No CountryISO2 value found for EODHD exchange '$ExchangeCode'. Using EODHD exchange code.
+EODHD listing for this exchange: $exchangeContext
+OrderClerk mapping uses CountryISO2 (CSV column 3); if it is missing here, map manually or fix EODHD data for this exchange row.
+"@
             Write-Warning $warningMessage
-            "[$((Get-Date).ToUniversalTime().ToString("o"))] WARNING: $warningMessage" | Add-Content -LiteralPath $LogFile
+            foreach ($warningLine in ($warningMessage -split "`r?`n")) {
+                if (-not [string]::IsNullOrWhiteSpace($warningLine)) {
+                    "[$((Get-Date).ToUniversalTime().ToString("o"))] WARNING: $warningLine" | Add-Content -LiteralPath $LogFile
+                }
+            }
             return $ExchangeCode
         }
 
@@ -345,9 +415,17 @@ function Invoke-EodhdSymbolExport {
             return [string]$OrderClerkMappingsByCountry[$normalizedCountryIso2].ExchangeCode
         }
 
-        $warningMessage = "No OrderClerk exchange mapping found for EODHD exchange '$ExchangeCode' CountryISO2 '$countryIso2'. Using EODHD exchange code."
+        $warningMessage = @"
+No OrderClerk exchange mapping found for EODHD exchange '$ExchangeCode' CountryISO2 '$countryIso2'. Using EODHD exchange code.
+EODHD listing for this exchange: $exchangeContext
+Add or fix a row in OrderClerkExchanges.csv (column 3 country ISO2 must match this listing) if you need a different OrderClerk exchange code.
+"@
         Write-Warning $warningMessage
-        "[$((Get-Date).ToUniversalTime().ToString("o"))] WARNING: $warningMessage" | Add-Content -LiteralPath $LogFile
+        foreach ($warningLine in ($warningMessage -split "`r?`n")) {
+            if (-not [string]::IsNullOrWhiteSpace($warningLine)) {
+                "[$((Get-Date).ToUniversalTime().ToString("o"))] WARNING: $warningLine" | Add-Content -LiteralPath $LogFile
+            }
+        }
         return $ExchangeCode
     }
 

@@ -9,7 +9,7 @@ Import:
 	DataSource:	EODHD
 	
 	// this will include ALL the symbols in the SIX exchange (outstanding issue is aliasing these for use in OC/IBKR)
-	IncludeList:	?scriptpath?\output\SW-symbols-rt.txt
+//	IncludeList:	?scriptpath?\output\SW-symbols-rt.txt
 	SymInfoFile:	?scriptpath?\output\SW-syminfo-rt.csv
 
 	// or pick individual stocks/etc - alias them so that IBKR can use them.  Remember, NO SPACES around the > symbol.

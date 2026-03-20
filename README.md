@@ -269,10 +269,17 @@ powershell.exe -ExecutionPolicy Bypass -File "C:\path\to\eodhd\Run-EodhdSnapshot
 
 If you keep the token in an environment variable, run the task under a user account that has that variable defined.
 
+## Symbol validation performance (`Invoke-EodhdSymbolValidation.ps1`)
+
+Most time is spent reading every `*-symbols-full.json` under `output/` and building in-memory indexes. The script requires **PowerShell 7+** and streams each file with `System.Text.Json` `Utf8JsonReader` (only `Code` / `Currency` per row), avoiding `ConvertFrom-Json` and per-row PowerShell objects.
+
+- **Profile** — Run `.\Invoke-EodhdSymbolValidation.ps1 -ProfileTimings` to print per-phase timings and the slowest payload files.
+
 ## Files
 
 - `eodhd-config.json` - exchange selection and runtime settings.
 - `Invoke-EodhdSymbolExport.ps1` - main exporter.
+- `Invoke-EodhdSymbolValidation.ps1` - validate symbol lists against exported `*-symbols-full.json` payloads.
 - `Run-EodhdSnapshot.ps1` - scheduler-friendly wrapper script.
 - `output/` - generated snapshot outputs (created at runtime).
 - `logs/` - run logs and transcripts (created at runtime).

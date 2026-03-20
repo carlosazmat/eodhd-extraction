@@ -227,9 +227,8 @@ DG, PA
 VIV, PA
 
 FTSE 100 (London, GBP):
-HL., CURRENCY_MISMATCH need GBP; listing had THB@BK, USD@US
-IHG, CURRENCY_MISMATCH need GBP; listing had USD@LSE, USD@US
-SKG, CURRENCY_MISMATCH need GBP; listing had VND@VN
+HL.L, CURRENCY_MISMATCH need GBP; listing had EUR@BE, EUR@F, EUR@MU, EUR@STU
+IHG.LSE, NOT_FOUND
 AAF, LSE
 ABDN, LSE
 ABF, LSE
@@ -376,7 +375,7 @@ CAC 40: Paris [EUR] (100%)
 DAX 40: Deutschland [EUR] (100%)
 IBEX 35: Madrid [EUR] (100%)
 SMI: Schweiz [CHF] (100%)
-FTSE 100: London [GBP] (97%)
+FTSE 100: London [GBP] (98%)
 OMX Helsinki 25: Helsinki [EUR] (95%)
 EURO STOXX 50: EuroStoxx [EUR] (81%)
 FTSE MIB: Milan [EUR] (39%)

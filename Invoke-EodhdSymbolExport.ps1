@@ -273,32 +273,6 @@ function Invoke-EodhdSymbolExport {
         return $mappings
     }
 
-    function Resolve-OrderClerkExchangeCsvPath {
-        [CmdletBinding()]
-        param(
-            [Parameter(Mandatory = $true)]
-            [string]$PrimaryCsvPath,
-            [Parameter(Mandatory = $true)]
-            [string]$FallbackCsvPath,
-            [Parameter(Mandatory = $true)]
-            [string]$LogFile
-        )
-
-        if (Test-Path -LiteralPath $PrimaryCsvPath) {
-            return $PrimaryCsvPath
-        }
-
-        $missingPrimaryMessage = "ORDERCLERK MAPPING FILE MISSING: '$PrimaryCsvPath'. Falling back to '$FallbackCsvPath'."
-        Write-Warning $missingPrimaryMessage
-        "[$((Get-Date).ToUniversalTime().ToString("o"))] WARNING: $missingPrimaryMessage" | Add-Content -LiteralPath $LogFile
-
-        if (Test-Path -LiteralPath $FallbackCsvPath) {
-            return $FallbackCsvPath
-        }
-
-        throw "OrderClerk exchange mapping file not found at primary path '$PrimaryCsvPath' or fallback path '$FallbackCsvPath'."
-    }
-
     function Get-ExchangeCountryIso2 {
         [CmdletBinding()]
         param(
@@ -418,7 +392,7 @@ OrderClerk mapping uses CountryISO2 (CSV column 3); if it is missing here, map m
         $warningMessage = @"
 No OrderClerk exchange mapping found for EODHD exchange '$ExchangeCode' CountryISO2 '$countryIso2'. Using EODHD exchange code.
 EODHD listing for this exchange: $exchangeContext
-Add or fix a row in OrderClerkExchanges.csv (column 3 country ISO2 must match this listing) if you need a different OrderClerk exchange code.
+Add or fix a row in fallback\OrderClerkExchanges.csv (column 3 country ISO2 must match this listing) if you need a different OrderClerk exchange code.
 "@
         Write-Warning $warningMessage
         foreach ($warningLine in ($warningMessage -split "`r?`n")) {
@@ -584,8 +558,7 @@ Add or fix a row in OrderClerkExchanges.csv (column 3 country ISO2 must match th
         $timestampUtc = (Get-Date).ToUniversalTime()
         $timestampIso = $timestampUtc.ToString("o")
         $logFile = Join-Path $logsDirectory ("eodhd-export-{0}.log" -f $timestampUtc.ToString("yyyyMMdd-HHmmss"))
-        $orderClerkExchangeCsvPrimaryPath = "C:\OrderClerk\OrderClerkExchanges.csv"
-        $orderClerkExchangeCsvFallbackPath = Join-Path $PSScriptRoot "fallback\OrderClerkExchanges.csv"
+        $orderClerkExchangeCsvPath = Join-Path $PSScriptRoot "fallback\OrderClerkExchanges.csv"
 
         "[$timestampIso] Starting EODHD symbol export" | Out-File -LiteralPath $logFile -Encoding utf8
         "[$timestampIso] Token source: $tokenSource" | Add-Content -LiteralPath $logFile
@@ -594,7 +567,6 @@ Add or fix a row in OrderClerkExchanges.csv (column 3 country ISO2 must match th
             $availableExchanges = @(Get-EodhdAvailableExchanges -ApiBaseUrl $apiBaseUrl -ApiToken $token -TimeoutSeconds $requestTimeoutSeconds)
         }
 
-        $orderClerkExchangeCsvPath = Resolve-OrderClerkExchangeCsvPath -PrimaryCsvPath $orderClerkExchangeCsvPrimaryPath -FallbackCsvPath $orderClerkExchangeCsvFallbackPath -LogFile $logFile
         "[$((Get-Date).ToUniversalTime().ToString("o"))] Using OrderClerk exchange mapping file: $orderClerkExchangeCsvPath" | Add-Content -LiteralPath $logFile
 
         $orderClerkMappings = @(Get-OrderClerkExchangeMappings -CsvPath $orderClerkExchangeCsvPath)
@@ -606,7 +578,7 @@ Add or fix a row in OrderClerkExchanges.csv (column 3 country ISO2 must match th
             }
 
             if (-not $orderClerkMappingsByCountry.ContainsKey($normalizedCountry)) {
-                # Keep the first row found in OrderClerkExchanges.csv for each country.
+                # Keep the first row found in fallback\OrderClerkExchanges.csv for each country.
                 $orderClerkMappingsByCountry[$normalizedCountry] = $mapping
             }
         }

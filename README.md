@@ -2,8 +2,6 @@
 
 This folder contains a standalone method to export exchange symbols from EODHD for use with [Real Test Trading software](https://mhptrading.com/)  The basic idea is to remove the need to figure out which symbols are available at which exchanges.
 
-Before you start, you MUST have Order Clerk also installed on this computer - as the script creates symbol files that require access to the OrderClerkExchanges.csv file in the Order Clerk installation.
-
 ## Quickstart (Listing EODHD Exchanges)
 
 Follow these steps in order to run the script and start exploring how it works.
@@ -228,16 +226,13 @@ For each exchange (example `SW`):
 
 - `output/SW-symbols-rt.txt` - import section ready symbols (`CODE.EXCHANGE` format by default), put this in an IncludeList statement in your RTS script.
 - `output/SW-symbols-full.json` - the full JSON data returned by EODHD.
-- `output/SW-syminfo-rt.csv` - Real Test specific symbol info with `Symbol,Exchange,Name,Currency` (`Symbol` without exchange suffix, `Exchange` mapped from the first `OrderClerkExchanges.csv` row where column 3 matches EODHD `CountryISO2`).
+- `output/SW-syminfo-rt.csv` - Real Test specific symbol info with `Symbol,Exchange,Name,Currency` (`Symbol` without exchange suffix, `Exchange` mapped from the first `fallback\OrderClerkExchanges.csv` row where column 3 matches EODHD `CountryISO2`).
 
 Notes:
 
 - Files ending with `-symbols-rt.txt` are intended for RealTest import use.
-- OrderClerk mapping file resolution order:
-  1. `C:\OrderClerk\OrderClerkExchanges.csv`
-  2. `fallback\OrderClerkExchanges.csv` (repo fallback)
-- If the primary `C:\OrderClerk\OrderClerkExchanges.csv` file is missing, the exporter logs a loud warning and uses the fallback file.
-- If `C:\OrderClerk\OrderClerkExchanges.csv` has no `CountryISO2` match for an exported exchange, the exporter warns and leaves `Exchange` set to the original EODHD exchange code.
+- The exporter always reads `fallback\OrderClerkExchanges.csv` for country → exchange acronym mapping.
+- If that CSV has no `CountryISO2` match for an exported exchange, the exporter warns and leaves `Exchange` set to the original EODHD exchange code.
 
 OrderClerk mapping rationale (Marsten Parker, 12 March 2026):
 
@@ -271,12 +266,15 @@ If you keep the token in an environment variable, run the task under a user acco
 
 ## Symbol validation performance (`Invoke-EodhdSymbolValidation.ps1`)
 
+Validation does not read `fallback\OrderClerkExchanges.csv` itself; it compares your listing file to `output/*-symbols-full.json`. Re-run the exporter after editing that CSV if you need syminfo / exchange tokens to match the updated mapping.
+
 Most time is spent reading every `*-symbols-full.json` under `output/` and building in-memory indexes. The script requires **PowerShell 7+** and streams each file with `System.Text.Json` `Utf8JsonReader` (only `Code` / `Currency` per row), avoiding `ConvertFrom-Json` and per-row PowerShell objects.
 
 - **Profile** — Run `.\Invoke-EodhdSymbolValidation.ps1 -ProfileTimings` to print per-phase timings and the slowest payload files.
 
 ## Files
 
+- `fallback\OrderClerkExchanges.csv` - country (column 3) → exchange acronym mapping for syminfo / listing exchange tokens.
 - `eodhd-config.json` - exchange selection and runtime settings.
 - `Invoke-EodhdSymbolExport.ps1` - main exporter.
 - `Invoke-EodhdSymbolValidation.ps1` - validate symbol lists against exported `*-symbols-full.json` payloads.

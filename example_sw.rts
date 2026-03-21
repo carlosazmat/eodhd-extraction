@@ -25,7 +25,7 @@ Import:
 Settings:	
 	AccountSize:	100000
 	DataFile:	sw-symbols.rtd
-	
+
 OrderSettings:
 	StartDate:	2022/8/1
 	EndDate:	Latest
@@ -36,11 +36,11 @@ Data:
 	AllocCHDVD:	50
 	AllocAGGS:	50
 
-// "borrowed" from the dalio_allweather.rts RT example script
 Strategy: allweather_sw
 	Side:	Long
 	EntrySetup:	InList("assets")
 	ExitRule:	1
+	EntryLimit:	C*0.99 // just that we have a limit price, so that IB doesn't barf on same symbol buy/sell on the same day
 	Quantity:	Item("alloc{?}", ?symbol)
 	QtyType:	Percent
 	
